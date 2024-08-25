@@ -1,52 +1,87 @@
 
-minetest.register_chatcommand("atban_account", {
-    description = "Ban a player's account permanently",
-    privs = {ban = true},
-    params = "<player_name> <reason_of_account_ban>",
-    func = function(name, param)
-        local player_name, reason = param:match("^([^%s]+)%s(.+)$")
-
-        if not player_name or not reason then
-            return false, "Usage: /atban_account <player_name> <reason_of_account_ban>"
-        end
-
-        local success, message = atban.ban_account(player_name, reason, name)
-        return success, message
-    end,
-})
-
 minetest.register_chatcommand("atban_ip", {
-    params = "<player_name> <reason>",
-    description = "Ban a player's IP permanently for the specified reason.",
+    params = "<player_name> <reason> <time_in_minutes>",
+    description = "Ban a player's IP",
     privs = {ban = true},
-    func = function(name, param)
-        local player_name, reason = string.match(param, "^(%S+)%s(.+)$")
-        if not player_name or not reason then
-            return false, "Invalid parameters. Usage: /atban_ip <player_name> <reason>"
+    func = function(player_name, param)
+        local params = param:split(" ")
+        if #params < 3 then
+            return false, "Usage: /atban_ip <player_name> <reason> <time_in_minutes>"
         end
 
-        local ip = atban.get_player_ip_from_file(player_name)
-        if not ip then
-            return false, "Failed to retrieve IP for player " .. player_name
+        local target_player_name = params[1]
+        local reason = table.concat(params, " ", 2, #params - 1)
+        local time_in_minutes = tonumber(params[#params])
+
+        if not time_in_minutes then
+            return false, "Time in minutes must be a number."
         end
 
-        local success, msg = atban.ban_ip(ip, reason, name)
-        return success, msg
+        local target_player = minetest.get_player_by_name(target_player_name)
+        if not target_player then
+            return false, "Player not found."
+        end
+
+        local player_ip = minetest.get_player_ip(target_player_name)
+        local success, message = atban.ban_ip(player_ip, reason, time_in_minutes, player_name)
+        if success then
+            return true, message
+        else
+            return false, message
+        end
     end
 })
 
-minetest.register_chatcommand("mute", {
-    description = "Mute a player with a reason",
+minetest.register_chatcommand("atban_account", {
+    params = "<player_name> <reason> <time_in_minutes>",
+    description = "Ban a player's account",
     privs = {ban = true},
-    params = "<player_name> <reason>",
-    func = function(name, param)
-        local player_name, reason = param:match("^([^%s]+)%s(.+)$")
-
-        if not player_name or not reason then
-            return false, "Usage: /mute <player_name> <reason>"
+    func = function(player_name, param)
+        local params = param:split(" ")
+        if #params < 3 then
+            return false, "Usage: /atban_account <player_name> <reason> <time_in_minutes>"
         end
 
-        local success, message = atban.mute_player(player_name, reason, name)
-        return success, message
-    end,
+        local target_player_name = params[1]
+        local reason = table.concat(params, " ", 2, #params - 1)
+        local time_in_minutes = tonumber(params[#params])
+
+        if not time_in_minutes then
+            return false, "Time in minutes must be a number."
+        end
+
+        local success, message = atban.ban_account(target_player_name, reason, time_in_minutes, player_name)
+        if success then
+            return true, message
+        else
+            return false, message
+        end
+    end
+})
+
+minetest.register_chatcommand("atmute", {
+    params = "<player_name> <reason> <time_in_minutes>",
+    description = "Mute a player",
+    privs = {ban = true},
+    func = function(player_name, param)
+        local params = param:split(" ")
+        if #params < 3 then
+            return false, "Usage: /atmute <player_name> <reason> <time_in_minutes>"
+        end
+
+        local target_player_name = params[1]
+        local reason = table.concat(params, " ", 2, #params - 1)
+        local time_in_minutes = tonumber(params[#params])
+
+        if not time_in_minutes then
+            return false, "Time in minutes must be a number."
+        end
+
+        local success, message = atban.mute_player(target_player_name, reason, time_in_minutes, player_name)
+        if success then
+            return true, message
+        else
+            return false, message
+        end
+    end
 })
