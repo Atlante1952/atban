@@ -30,8 +30,10 @@ local function append_to_file(path, content)
     return true
 end
 
-local function get_file_path(filename)
-    return minetest.get_worldpath() .. "/" .. filename
+local function get_file_path(sub_dir, filename)
+    local base_dir = minetest.get_worldpath() .. "/atban/" .. sub_dir .. "/"
+    minetest.mkdir(base_dir)
+    return base_dir .. filename
 end
 
 local function format_ban_info(entity, entity_type, banning_player, reason, time_in_minutes, current_time)
@@ -94,15 +96,15 @@ local function ban_entity(entity, entity_type, reason, time_in_minutes, banning_
 end
 
 function atban.ban_ip(ip, reason, time_in_minutes, banning_player)
-    return ban_entity(ip, "IP", reason, time_in_minutes, banning_player, get_file_path("ban_ip.txt"))
+    return ban_entity(ip, "IP", reason, time_in_minutes, banning_player, get_file_path("ban_ip", ip .. ".txt"))
 end
 
 function atban.is_ip_banned(ip)
-    return is_entity_banned(ip, "IP", get_file_path("ban_ip.txt"))
+    return is_entity_banned(ip, "IP", get_file_path("ban_ip", ip .. ".txt"))
 end
 
 function atban.ban_account(player_name, reason, time_in_minutes, banning_player)
-    local success, message = ban_entity(player_name, "Account", reason, time_in_minutes, banning_player, get_file_path("ban_account.txt"))
+    local success, message = ban_entity(player_name, "Account", reason, time_in_minutes, banning_player, get_file_path("ban", player_name .. ".txt"))
     if success then
         local target_player = minetest.get_player_by_name(player_name)
         if target_player then
@@ -113,11 +115,11 @@ function atban.ban_account(player_name, reason, time_in_minutes, banning_player)
 end
 
 function atban.is_player_banned(player_name)
-    return is_entity_banned(player_name, "Account", get_file_path("ban_account.txt"))
+    return is_entity_banned(player_name, "Account", get_file_path("ban", player_name .. ".txt"))
 end
 
 function atban.mute_player(player_name, reason, time_in_minutes, muter_name)
-    local file_path = get_file_path("mute_account.txt")
+    local file_path = get_file_path("mute", player_name .. ".txt")
     local current_time = os.date("%Y-%m-%d %H:%M:%S")
     local mute_info = string.format("Player: %s\nMuted by: %s\nReason: %s\nMuted at: %s\nDuration: %d minutes\n\n",
                                     player_name, muter_name, reason, current_time, time_in_minutes)
@@ -137,7 +139,7 @@ function atban.mute_player(player_name, reason, time_in_minutes, muter_name)
 end
 
 function atban.get_mute_details(player_name)
-    local file_path = get_file_path("mute_account.txt")
+    local file_path = get_file_path("mute", player_name .. ".txt")
     local content = read_file(file_path)
     if not content then
         return nil
@@ -180,54 +182,44 @@ function atban.calculate_unban_time(ban_start, duration_minutes)
     return os.date("%Y-%m-%d %H:%M:%S", unban_time)
 end
 
-local function check_and_remove_expired_sanctions()
+function atban.check_and_remove_expired_sanctions()
     local current_time = os.time()
-    local ip_ban_file_path = get_file_path("ban_ip.txt")
-    local ip_ban_content = read_file(ip_ban_file_path)
-    if ip_ban_content then
-        for ip, ban_start, duration in ip_ban_content:gmatch("IP: (.-)\nBanned at: (.-)\nDuration: (.-) minutes\n\n") do
-            local ban_start_time = os.time(parse_date_string(ban_start))
-            local unban_time = ban_start_time + (tonumber(duration) * 60)
-            if current_time >= unban_time then
-                local new_content = ip_ban_content:gsub("IP: " .. ip .. "\nBanned at: .-\nBanned by: .-\nReason: .-\nDuration: .- minutes\n\n", "")
-                write_to_file(ip_ban_file_path, new_content)
-                minetest.log("action", "IP " .. ip .. " has been unbanned.")
-            end
-        end
-    end    local account_ban_file_path = get_file_path("ban_account.txt")
-    local account_ban_content = read_file(account_ban_file_path)
-    if account_ban_content then
-        for account, ban_start, duration in account_ban_content:gmatch("Account: (.-)\nBanned at: (.-)\nDuration: (.-) minutes\n\n") do
-            local ban_start_time = os.time(parse_date_string(ban_start))
-            local unban_time = ban_start_time + (tonumber(duration) * 60)
-            if current_time >= unban_time then
-                local new_content = account_ban_content:gsub("Account: " .. account .. "\nBanned at: .-\nBanned by: .-\nReason: .-\nDuration: .- minutes\n\n", "")
-                write_to_file(account_ban_file_path, new_content)
-                minetest.log("action", "Account " .. account .. " has been unbanned.")
+    local function process_expired_sanctions(sub_dir, entity_type)
+        local base_dir = minetest.get_worldpath() .. "/atban/" .. sub_dir .. "/"
+        local files = minetest.get_dir_list(base_dir, true)
+        for _, file in ipairs(files) do
+            local file_path = base_dir .. file
+            local content = read_file(file_path)
+            if content then
+                for entity, ban_start, duration in content:gmatch(entity_type .. ": (.-)\nBanned at: (.-)\nDuration: (.-) minutes\n\n") do
+                    local ban_start_time = os.time(parse_date_string(ban_start))
+                    local unban_time = ban_start_time + (tonumber(duration) * 60)
+                    if current_time >= unban_time then
+                        local new_content = content:gsub(entity_type .. ": " .. entity .. "\nBanned at: .-\nBanned by: .-\nReason: .-\nDuration: .- minutes\n\n", "")
+                        write_to_file(file_path, new_content)
+                        minetest.log("action", entity_type .. " " .. entity .. " has been unbanned.")
+                    end
+                end
             end
         end
     end
-    local mute_file_path = get_file_path("mute_account.txt")
-    local mute_content = read_file(mute_file_path)
-    if mute_content then
-        for player, mute_start, duration in mute_content:gmatch("Player: (.-)\nMuted at: (.-)\nDuration: (.-) minutes\n\n") do
-            local mute_start_time = os.time(parse_date_string(mute_start))
-            local unmute_time = mute_start_time + (tonumber(duration) * 60)
-            if current_time >= unmute_time then
-                local new_content = mute_content:gsub("Player: " .. player .. "\nMuted by: .-\nReason: .-\nMuted at: .-\nDuration: .- minutes\n\n", "")
-                write_to_file(mute_file_path, new_content)
-                minetest.log("action", "Player " .. player .. " has been unmuted.")
+    process_expired_sanctions("ban_ip", "IP")
+    process_expired_sanctions("ban", "Account")
+    local mute_dir = minetest.get_worldpath() .. "/atban/mute/"
+    local mute_files = minetest.get_dir_list(mute_dir, true)
+    for _, file in ipairs(mute_files) do
+        local file_path = mute_dir .. file
+        local content = read_file(file_path)
+        if content then
+            for player, mute_start, duration in content:gmatch("Player: (.-)\nMuted at: (.-)\nDuration: (.-) minutes\n\n") do
+                local mute_start_time = os.time(parse_date_string(mute_start))
+                local unmute_time = mute_start_time + (tonumber(duration) * 60)
+                if current_time >= unmute_time then
+                    local new_content = content:gsub("Player: " .. player .. "\nMuted by: .-\nReason: .-\nMuted at: .-\nDuration: .- minutes\n\n", "")
+                    write_to_file(file_path, new_content)
+                    minetest.log("action", "Player " .. player .. " has been unmuted.")
+                end
             end
         end
     end
 end
-
-local last_check_time = 0
-
-minetest.register_globalstep(function(dtime)
-    last_check_time = last_check_time + dtime
-    if last_check_time >= 60 then
-        check_and_remove_expired_sanctions()
-        last_check_time = 0
-    end
-end)
